@@ -3,9 +3,9 @@ import numpy as np
 import tensorflow as tf
 
 class dendriter(tf.layers.Layer):
-    def __init__(self,units,dendrite_size,bigger_dendrite=False,function:int=0,one_permutation:bool=False,idx=-2,
-                 bias:bool=True,uniqueW=False,uniqueB=False,many_weights=True,trainable=True,activity_regularizer=None,
-                 W_init="glorot_normal_initializer",B_init="glorot_normal_initializer",
+    def __init__(self,units,dendrite_size,bigger_dendrite=False,activation=None,function:int=0,one_permutation:bool=False,idx=-2,
+                 bias:bool=True,uniqueW=False,trainable=True,activity_regularizer=None,
+                 W_init=tf.glorot_normal_initializer(),B_init=tf.glorot_normal_initializer(),
                  W_reg=None,B_reg=None,
                  W_constrain=None,B_constrain=None,**kwargs):
         """
@@ -23,16 +23,14 @@ class dendriter(tf.layers.Layer):
         try:
             self.function=[tf.unsorted_segment_sum,tf.unsorted_segment_mean][function%2]
             #cannot import unsorted_segment_mean, with tf1.7 on my setup, but worth trying
-        except ImportError:
+        except (ImportError,AttributeError):
             self.function=tf.unsorted_segment_sum
-        self.dendrite_size=float(dendrite_size)
+        self.dendrite_size=dendrite_size
         self.bigger_dendrite=bigger_dendrite
         self.one_perm=one_permutation
         self.idx=idx
         self.use_bias=bias
         self.uniqueW=uniqueW
-        self.uniqueB=uniqueB
-        self.manyW=many_weights
         self.Weight_initializer=W_init
         if B_init is None:
             self.Bias_initializer=tf.initializers.ones
@@ -42,7 +40,8 @@ class dendriter(tf.layers.Layer):
         self.Weight_constraint=W_constrain
         self.Bias_regularizer=B_reg
         self.Bias_constraint=B_constrain
-        
+        self.activation=activation
+
     def segmenter(self,):
         """
         must work on the node (units) and not the data itself?
@@ -68,29 +67,25 @@ class dendriter(tf.layers.Layer):
         groups = (self.connections//self.dendrite_size)
         if bigger:
             groups-=1
+        print(self.dendrite_size,'dendrite_size')
         for perm in connections_list:
             temp=[perm[self.dendrite_size*i:self.dendrite_size*(i+1)] for i in range(groups)]
             temp.append(list(perm[self.dendrite_size*groups:]))
             tuples.append(temp)
-        num_id=len(tuples[0])
+        self.num_id=len(tuples[0])
         output=np.empty((self.units,self.connections,),dtype=int)
         for iseq,sequence in enumerate(tuples):
             for value,indexes in enumerate(sequence):
                 for index in indexes:
                     output[iseq,index]=value
-        print(output.shape,'oneshot, output shape')
-        return(output,num_id)
-
-    
+        print(output.shape,segmenter, output shape')
+        return(output)
     
     def build(self,input_shape):
         input_shape=input_shape.shape.as_list()
         self.len_input=len(input_shape)
         self.connections=input_shape[-1]
-        self.dendrites=self.make_seg_id(id)#list of dendrites per neuron
-        self.divider=[ len(tup) for tup in self.seg_sample]#placeholder
-        self.ldiv=len(self.divider)#number of dendrites per neuron
-        self.divider=tf.reshape(self.divider,(1,1,1,self.ldiv,1,1))
+        self.dendrites=self.segmenter()#list of dendrites per neuron
         self.pre_dendrites=self.connections*self.units#neurons*previous_layer_neurons
         #self.num_dendrites=self.pre_dendrites/self.dendrite_size
         #if self.bigger_dendrite:
@@ -116,7 +111,7 @@ class dendriter(tf.layers.Layer):
                                 constraint=self.Weight_constraint,dtype=self.dtype,
                                 trainable=True)
         if self.use_bias:
-            if self.uniqueB:
+            if self.uniqueW:
                 self.bias=self.add_variable('bias',shape=[input_shape[-1],self.units,],
                                 initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
                                 constraint=self.Bias_constraint,dtype=self.dtype,
@@ -126,7 +121,7 @@ class dendriter(tf.layers.Layer):
                                 initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
                                 constraint=self.Bias_constraint, dtype=self.dtype,
                                 trainable=True)
-            if self.uniqueB:
+            if self.uniqueW:
                 self.dendriticB=self.add_variable('dendriticBias',shape=[self.num_id,self.units,],
                                 initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
                                 constraint=self.Bias_constraint,dtype=self.dtype,
@@ -154,17 +149,19 @@ class dendriter(tf.layers.Layer):
 
     def __call__(self,inputs):
         #inputs = tf.ops.convert_to_tensor(inputs, dtype=self.dtype)
-        output=tf.transpose(tf.expand_dims(inputs,-1))
-        if self.manyW:
+        if not(inputs.dtype==self.kernel.dtype):
+            inputs=tf.cast(inputs,dtype=self.kernel.dtype)
+        output=tf.expand_dims(inputs,-1)
+        if self.uniqueW:
             output=tf.multiply(output, self.kernel)
         else:
             output=tf.tensordot(output,self.kernel,(-1,0))
         if self.use_bias:
             output=tf.nn.bias_add(output,self.bias)
         output=self.function(tf.transpose(output), self.dendrites, self.num_id,)
-        output=tf.matmul(output,self.dendriticW)
+        output=tf.tensordot(tf.transpose(output),self.dendriticW,(-1,0))
         if self.use_bias:
             output=tf.nn.bias_add(output, self.dendriticB)
         if self.activation is not None:
-          return self.activation(output)  
+            return self.activation(output)  
         return(output)
