@@ -2,7 +2,7 @@
 import numpy as np
 import tensorflow as tf
 
-class tf_dendriter(tf.layers.Layer):
+class dendriter(tf.layers.Layer):
     def __init__(self,units,dendrite_size,bigger_dendrite=False,function:int=0,one_permutation:bool=False,idx=-2,
                  bias:bool=True,uniqueW=False,uniqueB=False,many_weights=True,trainable=True,activity_regularizer=None,
                  W_init="glorot_normal_initializer",B_init="glorot_normal_initializer",
