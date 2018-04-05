@@ -39,7 +39,7 @@ class dendriter(tf.layers.Layer):
         self.Bias_regularizer=B_reg
         self.Bias_constraint=B_constrain
         
-    def segmenter(self,idx=1):
+    def segmenter(self,):
         """
         must work on the node (units) and not the data itself?
         makes list with permuted index
