@@ -20,7 +20,11 @@ class dendriter(tf.layers.Layer):
                                 activity_regularizer=activity_regularizer,
                                 **kwargs)
         self.units=units
-        self.function=[tf.unsorted_segment_sum,tf.unsorted_segment_mean][function%2]#[tf.unsorted_segment_sum, self.tfmean][function%2]
+        try:
+            self.function=[tf.unsorted_segment_sum,tf.unsorted_segment_mean][function%2]
+            #cannot import unsorted_segment_mean, with tf1.7 on my setup, but worth trying
+        except ImportError:
+            self.function=tf.unsorted_segment_sum
         self.dendrite_size=float(dendrite_size)
         self.bigger_dendrite=bigger_dendrite
         self.one_perm=one_permutation
