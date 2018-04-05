@@ -2,7 +2,7 @@
 import numpy as np
 import tensorflow as tf
 
-class dendriter(tf.layers.Layer):
+class tf_dendriter(tf.layers.Layer):
     def __init__(self,units,dendrite_size,bigger_dendrite=False,function:int=0,one_permutation:bool=False,idx=-2,
                  bias:bool=True,uniqueW=False,uniqueB=False,many_weights=True,trainable=True,activity_regularizer=None,
                  W_init="glorot_normal_initializer",B_init="glorot_normal_initializer",
@@ -38,7 +38,7 @@ class dendriter(tf.layers.Layer):
         self.Weight_constraint=W_constrain
         self.Bias_regularizer=B_reg
         self.Bias_constraint=B_constrain
-    #in:= input_shape,units
+        
     def segmenter(self,idx=1):
         """
         must work on the node (units) and not the data itself?
@@ -47,10 +47,8 @@ class dendriter(tf.layers.Layer):
         permutations= number of lists
         connection_size=size of tuples in the list
         """
-        #permutations=connections//connection_size
         connections_list=[]
         for i in range(self.units):
-            #con_pre_tup=[x for x in range(len(connection))]
             con_pre_tup=np.random.permutation(self.connections).tolist()
             if con_pre_tup in connections_list:
                 print('if ok')
@@ -71,12 +69,8 @@ class dendriter(tf.layers.Layer):
             temp.append(list(perm[self.dendrite_size*groups:]))
             tuples.append(temp)
         num_id=len(tuples[0])
-        #print(len(tuples[0]),connections)
-        #assert num_id==connections_list.shape[idx]
-        #print(tuples)
         output=np.empty((self.units,self.connections,),dtype=int)
         for iseq,sequence in enumerate(tuples):
-            #print(iseq,sequence)
             for value,indexes in enumerate(sequence):
                 for index in indexes:
                     output[iseq,index]=value
@@ -86,8 +80,6 @@ class dendriter(tf.layers.Layer):
     
     
     def build(self,input_shape):
-        "build weights"
-        #input_shape = tf.tensor_shape.TensorShape(input_shape)
         input_shape=input_shape.shape.as_list()
         self.len_input=len(input_shape)
         self.connections=input_shape[-1]
@@ -148,7 +140,6 @@ class dendriter(tf.layers.Layer):
 
     def compute_output_shape(self, input_shape):
         input_shape = tf.tensor_shape.TensorShape(input_shape)
-        #todo
         input_shape = input_shape.with_rank_at_least(2)
         if input_shape[-1].value is None:
             raise ValueError(
@@ -166,22 +157,10 @@ class dendriter(tf.layers.Layer):
             output=tf.tensordot(output,self.kernel,(-1,0))
         if self.use_bias:
             output=tf.nn.bias_add(output,self.bias)
-        #get dendrite values
         output=self.function(tf.transpose(output), self.dendrites, self.num_id,)
         output=tf.matmul(output,self.dendriticW)
         if self.use_bias:
             output=tf.nn.bias_add(output, self.dendriticB)
-        """
-        if len(inputs.get_shape().as_list()) > 2:# Broadcasting is required for the inputs.
-          outputs = tf.tensordot(inputs, self.kernel, [[len(shape) - 1],[0]])
-          # Reshape the output back to the original ndim of the input.
-          if not tf.context.executing_eagerly():
-            output_shape = shape[:-1] + [self.units]
-            outputs.set_shape(output_shape)
-        else:
-          outputs = tf.gen_math_ops.mat_mul(inputs, self.kernel)
-        if self.use_bias:
-          outputs = tf.nn.bias_add(outputs, self.bias)"""
         if self.activation is not None:
-          return self.activation(output)  # pylint: disable=not-callable
+          return self.activation(output)  
         return(output)
