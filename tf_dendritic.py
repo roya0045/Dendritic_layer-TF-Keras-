@@ -4,6 +4,7 @@ import tensorflow as tf
 
 class dendriter(tf.layers.Layer):
     def __init__(self,units,dendrite_size,bigger_dendrite=False,activation=None,function:int=0,one_permutation:bool=False,idx=-2,
+                 dendrites=None,
                  bias:bool=True,uniqueW=False,trainable=True,activity_regularizer=None,
                  W_init=tf.glorot_normal_initializer(),B_init=tf.glorot_normal_initializer(),
                  W_reg=None,B_reg=None,
@@ -38,6 +39,7 @@ class dendriter(tf.layers.Layer):
             self.Bias_initializer=B_init
         self.Weight_regularizer=W_reg
         self.Weight_constraint=W_constrain
+        self.dendrites=dendrites
         self.Bias_regularizer=B_reg
         self.Bias_constraint=B_constrain
         self.activation=activation
@@ -85,7 +87,10 @@ class dendriter(tf.layers.Layer):
         input_shape=input_shape.shape.as_list()
         self.len_input=len(input_shape)
         self.connections=input_shape[-1]
-        self.dendrites=self.segmenter()#list of dendrites per neuron
+        if self.dendrites is None:
+            self.dendrites=self.segmenter()#list of dendrites per neuron
+        else:
+            assert self.dendrites.shape==(self.units,self.connections)
         self.pre_dendrites=self.connections*self.units#neurons*previous_layer_neurons
         #self.num_dendrites=self.pre_dendrites/self.dendrite_size
         #if self.bigger_dendrite:
