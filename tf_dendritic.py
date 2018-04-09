@@ -4,11 +4,11 @@ import tensorflow as tf
 
 class dendriter(tf.layers.Layer):
     def __init__(self,units,dendrite_size,bigger_dendrite=False,activation=None,function:int=0,one_permutation:bool=False,idx=-2,
-                 dendrites=None,
+                 weight_twice=True,dendrites=None,#sequences
                  bias:bool=True,uniqueW=False,trainable=True,activity_regularizer=None,
                  W_init=tf.glorot_normal_initializer(),B_init=tf.glorot_normal_initializer(),
                  W_reg=None,B_reg=None,
-                 W_constrain=None,B_constrain=None,**kwargs):
+                 W_constrain=None,B_constrain=None,version=1,**kwargs):
         """
         size=number of cells/nodes
         dendrite_size=size of connections for each dendrite
@@ -16,6 +16,16 @@ class dendriter(tf.layers.Layer):
         function= use simple addition or average
         one_permitation=use only one connection scheme for every cells or not
         idx=dimention of the input to use to make segments
+        
+        #extra:
+        theorical backprop/weight update
+        wi=0.001#input weight
+        wdi=1.0#dendrite weight
+        wi=max((wi(1+changeW),0.001))
+        wdi=wdi*(1+changeW)
+        #changeW indicate the error?
+        changeW=max_learn_r*exp(-abs(delta)/scaler)*sign(delta)#bigger value = smaller change, max = 0.05, min =-0.05
+
         """
         super(dendriter, self).__init__(trainable=trainable, 
                                 activity_regularizer=activity_regularizer,
@@ -30,8 +40,10 @@ class dendriter(tf.layers.Layer):
         self.bigger_dendrite=bigger_dendrite
         self.one_perm=one_permutation
         self.idx=idx
+        self.weight_twice=weight_twice
         self.use_bias=bias
         self.uniqueW=uniqueW
+        self.dendrites=dendrites
         self.Weight_initializer=W_init
         if B_init is None:
             self.Bias_initializer=tf.initializers.ones
@@ -39,10 +51,10 @@ class dendriter(tf.layers.Layer):
             self.Bias_initializer=B_init
         self.Weight_regularizer=W_reg
         self.Weight_constraint=W_constrain
-        self.dendrites=dendrites
         self.Bias_regularizer=B_reg
         self.Bias_constraint=B_constrain
         self.activation=activation
+        self.version=version
 
     def segmenter(self,):
         """
@@ -74,24 +86,36 @@ class dendriter(tf.layers.Layer):
             temp=[perm[self.dendrite_size*i:self.dendrite_size*(i+1)] for i in range(groups)]
             temp.append(list(perm[self.dendrite_size*groups:]))
             tuples.append(temp)
-        self.num_id=len(tuples[0])
+        self.seql=len(tuples[0])
+        if self.version==2:
+            self.num_id=self.seql*len(tuples)
+        else:
+            self.num_id=self.seql
         output=np.empty((self.units,self.connections,),dtype=int)
         for iseq,sequence in enumerate(tuples):
             for value,indexes in enumerate(sequence):
                 for index in indexes:
-                    output[iseq,index]=value
-        print(output.shape,segmenter, output shape')
+                    if self.version==2:
+                        output[iseq,index]=value+iseq*self.seql
+                    else:
+                        output[iseq,index]=value
+        print(output.shape,'segmenter, output shape')
         return(output)
     
     def build(self,input_shape):
-        input_shape=input_shape.shape.as_list()
-        self.len_input=len(input_shape)
-        self.connections=input_shape[-1]
+        self.input_shapes=input_shape.shape.as_list()
+        self.len_input=len(self.input_shapes)
+        self.connections=self.input_shapes[-1]
         if self.dendrites is None:
             self.dendrites=self.segmenter()#list of dendrites per neuron
-        else:
-            assert self.dendrites.shape==(self.units,self.connections)
+        if self.version==4:
+            self.dendrites=tf.constant(self.dendrites)
         self.pre_dendrites=self.connections*self.units#neurons*previous_layer_neurons
+        if self.version==1:
+            dwshape=[self.seql,self.units]
+        else:
+            dwshape=[self.seql,self.units]
+            #dwshape=[self.units,self.seql,*[1 for _ in range(self.len_input-1)]]
         #self.num_dendrites=self.pre_dendrites/self.dendrite_size
         #if self.bigger_dendrite:
         #    self.num_dendrites=math.floor(self.num_dendrites)
@@ -99,35 +123,45 @@ class dendriter(tf.layers.Layer):
         #    self.num_dendrites=math.ceil(self.num_dendrites)
         
         #input_shape = tensor_shape.TensorShape(input_shape)
-        if self.uniqueW:
-            self.kernel=self.add_variable('Weight',shape=[*[1 for _ in range(self.len_input-1)],input_shape[-1], self.units],
-                                initializer=self.Weight_initializer,regularizer=self.Weight_regularizer,
-                                constraint=self.Weight_constraint,dtype=self.dtype,
-                                trainable=True)
-                        
-        else:
-            self.kernel=self.add_variable('Weight',shape=[1, self.units],
-                                initializer=self.Weight_initializer,regularizer=self.Weight_regularizer,
-                                constraint=self.Weight_constraint,dtype=self.dtype,
-                                trainable=True)
-        
-        self.dendriticW=self.add_variable('dendriticWeight',shape=[self.num_id, self.units],
+        if self.version==2:
+            if len(self.input_shapes)>2:
+                part_inshape=(*self.input_shapes[1:-1],-1)
+            else:
+                part_inshape=(-1,)
+            self.debuildshape=(self.units*self.connections,*part_inshape)
+            self.deseqshape=(self.units*self.connections,)
+            self.rebuildshape=(self.units,self.seql,*part_inshape)
+        if self.weight_twice:
+            if self.uniqueW:
+                self.kernel=self.add_variable('Weight',shape=[*[1 for _ in range(self.len_input-1)],self.input_shapes[-1], self.units],
+                                    initializer=self.Weight_initializer,regularizer=self.Weight_regularizer,
+                                    constraint=self.Weight_constraint,dtype=self.dtype,
+                                    trainable=True)
+                            
+            else:
+                self.kernel=self.add_variable('Weight',shape=[1, self.units],
+                                    initializer=self.Weight_initializer,regularizer=self.Weight_regularizer,
+                                    constraint=self.Weight_constraint,dtype=self.dtype,
+                                    trainable=True)
+
+        self.dendriticW=self.add_variable('dendriticWeight',shape=dwshape,
                                 initializer=self.Weight_initializer,regularizer=self.Weight_regularizer,
                                 constraint=self.Weight_constraint,dtype=self.dtype,
                                 trainable=True)
         if self.use_bias:
+            if self.weight_twice:
+                if self.uniqueW:
+                    self.bias=self.add_variable('bias',shape=[self.input_shapes[-1],self.units,],
+                                    initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
+                                    constraint=self.Bias_constraint,dtype=self.dtype,
+                                    trainable=True)
+                else:
+                    self.bias=self.add_variable('bias',shape=[self.units,],
+                                    initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
+                                    constraint=self.Bias_constraint, dtype=self.dtype,
+                                    trainable=True)
             if self.uniqueW:
-                self.bias=self.add_variable('bias',shape=[input_shape[-1],self.units,],
-                                initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
-                                constraint=self.Bias_constraint,dtype=self.dtype,
-                                trainable=True)
-            else:
-                self.bias=self.add_variable('bias',shape=[self.units,],
-                                initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
-                                constraint=self.Bias_constraint, dtype=self.dtype,
-                                trainable=True)
-            if self.uniqueW:
-                self.dendriticB=self.add_variable('dendriticBias',shape=[self.num_id,self.units,],
+                self.dendriticB=self.add_variable('dendriticBias',shape=[self.seql,self.units,],
                                 initializer=self.Bias_initializer,regularizer=self.Bias_regularizer,
                                 constraint=self.Bias_constraint,dtype=self.dtype,
                                 trainable=True)
@@ -154,19 +188,86 @@ class dendriter(tf.layers.Layer):
 
     def __call__(self,inputs):
         #inputs = tf.ops.convert_to_tensor(inputs, dtype=self.dtype)
-        if not(inputs.dtype==self.kernel.dtype):
-            inputs=tf.cast(inputs,dtype=self.kernel.dtype)
-        output=tf.expand_dims(inputs,-1)
-        if self.uniqueW:
-            output=tf.multiply(output, self.kernel)
+        if not(inputs.dtype==self.dendriticW.dtype):
+            print("casting")
+            inputs=tf.cast(inputs,dtype=self.dendriticW.dtype)
+        print('input shape',inputs.shape)
+        if self.weight_twice:
+            output=tf.expand_dims(inputs,-1)
+            if self.uniqueW:
+                output=tf.multiply(output, self.kernel)
+            else:
+                output=tf.tensordot(output,self.kernel,(-1,0))
+            print(output.shape,'first weighting')
+            if self.use_bias:
+                output=tf.transpose(tf.nn.bias_add(output,self.bias))
+            print(output.shape,'bias1')
+            
         else:
-            output=tf.tensordot(output,self.kernel,(-1,0))
-        if self.use_bias:
-            output=tf.nn.bias_add(output,self.bias)
-        output=self.function(tf.transpose(output), self.dendrites, self.num_id,)
-        output=tf.tensordot(tf.transpose(output),self.dendriticW,(-1,0))
+            output=tf.transpose(inputs)
+
+        if self.version==4:#https://stackoverflow.com/questions/37441140/how-to-use-tf-while-loop-in-tensorflow
+            #loopv2
+            #output=tf.unstack(output)
+            ix=tf.constant(0,dtype=tf.int32)
+            holder=tf.TensorArray(output.dtype,size=self.units)
+            incr=tf.constant(1,dtype=tf.int32)
+            
+            def test(i, *args):
+                return(tf.less( i , self.units))
+            
+            def iteration(i, outputs_):
+                print(i,'I')
+                if self.weight_twice:
+                    intermid= tf.unsorted_segment_sum(output[i],self.dendrites[i],self.seql)
+                else:
+                    outputs_ = outputs_.write(i,intermid)
+                print(intermid.shape,'while loop data')
+                outputs_ = outputs_.write(i,intermid)
+                return( tf.add(i,incr), outputs_)
+
+            i, output = tf.while_loop(test, iteration,[ix,holder])
+            output=output.stack()
+            print(output.shape,'stacked')
+            #loopv1
+            #condition= lambda inn,hold: tf.less(inn,self.input_shapes[-1])
+            #looper=lambda inn,hold : [tf.add(inn,incr), tf.unsorted_segment_sum(output[inn],self.dendrites[inn],self.seql)]
+            #output=tf.while_loop(condition,looper,[ix,hold])
+            #output=tf.stack(output[1])
+        if self.version==3:
+            if self.weight_twice:
+                output=tf.unstack(output)
+                output=tf.stack([tf.unsorted_segment_sum(data, self.dendrites[i],self.seql) for i,data in enumerate(output)])
+            else:
+                output=tf.stack([tf.unsorted_segment_sum(output, seq,self.seql) for seq in self.dendrites])
+        if self.version==2:
+            if self.weight_twice:
+                print(self.debuildshape)
+                output=tf.reshape(output,self.debuildshape)
+                output=tf.unsorted_segment_sum(output,tf.reshape(self.dendrites,self.deseqshape),self.num_id)
+                output=tf.reshape(output,self.rebuildshape)
+                print(tf.transpose(output).shape,self.rebuildshape)
+            else:
+                print(self.debuildshape)
+                output=tf.multiply(tf.expand_dims(output,0),tf.ones((self.units,*[1 for _ in range(self.len_input)]),dtype=output.dtype))
+                output=tf.reshape(tf.transpose(output),self.debuildshape)
+                output=tf.unsorted_segment_sum(output,tf.reshape(self.dendrites,self.deseqshape),self.num_id)
+                output=tf.reshape(output,self.rebuildshape)
+                print(tf.transpose(output).shape,self.rebuildshape)
+        if self.version==1:
+            output=self.function(output, self.dendrites, self.num_id,)
+        #too much squashing
+            print(output.shape,'unsorted shape')
+            output=tf.tensordot(tf.transpose(output),self.dendriticW,(-1,0))
+        else:
+            print(output.shape,self.dendriticW.shape)
+            output=tf.multiply(tf.transpose(output),self.dendriticW)#perfect since it's elementwise and not dot product
+        print(output.shape,'2w shape')
         if self.use_bias:
             output=tf.nn.bias_add(output, self.dendriticB)
+        print(output.shape,'2b shape')
+        output=tf.reduce_sum(output,-2)#sum the dendrites
         if self.activation is not None:
             return self.activation(output)  
+        #print('GOOD OUTPUT SHAPE') if output.shape==(*self.input_shapes[:-1],self.units) else print("BAD OUTPUT SHAPE")
         return(output)
