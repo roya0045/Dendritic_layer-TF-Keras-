@@ -2,13 +2,41 @@
 import numpy as np
 import tensorflow as tf
 
+
+class minval_constraint():
+    def __init__(self,minval=0.0001):
+        self.minvalval=minval
+        self.minval=tf.constant(minval,dtype=K.floatx())
+    def get_config(self):
+        return({"minimal value":self.minvalval})
+    def __call__(self,w):
+        return(tf.maximum(w, self.minval))
+class maxval_constraint():
+    def __init__(self,maxval=4.0):
+        self.maxvalval=maxval
+        self.maxval=tf.constant(maxval,dtype=K.floatx())
+    def get_config(self):
+        return({"maximal value":self.maxvalval})
+    def __call__(self,w):
+        return(tf.minimum(w, self.maxval))
+class minmax_constraint():
+    def __init__(self,minval=0.0001,maxval=0.0001):
+        self.maxvalval=maxval
+        self.maxval=tf.constant(maxval,dtype=K.floatx())
+        self.minvalval=minval
+        self.minval=tf.constant(minval,dtype=K.floatx())
+    def get_config(self):
+        return({"maximal value":self.maxvalval,"minimal value":self.minvalval})
+    def __call__(self,w):
+        return(tf.maximum(tf.minimum(w, self.maxval),self.minval))
+
 class dendriter(tf.layers.Layer):
     def __init__(self,units,dendrite_size,bigger_dendrite=False,activation=None,function:int=0,one_permutation:bool=False,idx=-2,
                  weight_twice=True,dendrites=None,#sequences
                  bias:bool=True,uniqueW=False,trainable=True,activity_regularizer=None,
                  W_init=tf.glorot_normal_initializer(),B_init=tf.glorot_normal_initializer(),
                  W_reg=None,B_reg=None,
-                 W_constrain=None,B_constrain=None,version=1,**kwargs):
+                 W_constrain=minval_constraint(minval=0.0001),B_constrain=None,version=1,**kwargs):
         """
         size=number of cells/nodes
         dendrite_size=size of connections for each dendrite
