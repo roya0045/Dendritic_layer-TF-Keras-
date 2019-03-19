@@ -12,7 +12,7 @@ import torch
 class minval_constraint():
     def __init__(self, minval=0.0001):
         self.minvalval = minval
-        self.minval = torch.constant(minval, dtype=floatx())
+        self.minval = torch.constant(minval)
 
     def get_config(self):
         return ({"minimal value": self.minvalval})
@@ -24,7 +24,7 @@ class minval_constraint():
 class maxval_constraint():
     def __init__(self, maxval=4.0):
         self.maxvalval = maxval
-        self.maxval = torch.constant(maxval, dtype=floatx())
+        self.maxval = torch.constant(maxval)
 
     def get_config(self):
         return ({"maximal value": self.maxvalval})
@@ -36,9 +36,9 @@ class maxval_constraint():
 class minmax_constraint():
     def __init__(self, minval=0.0001, maxval=0.0001):
         self.maxvalval = maxval
-        self.maxval = torch.constant(maxval, dtype=floatx())
+        self.maxval = torch.constant(maxval)
         self.minvalval = minval
-        self.minval = torch.constant(minval, dtype=floatx())
+        self.minval = torch.constant(minval))
 
     def get_config(self):
         return ({"maximal value": self.maxvalval, "minimal value": self.minvalval})
@@ -48,13 +48,13 @@ class minmax_constraint():
 
 
 class dendriter(nn.Module):
-    def __init__(self, units, dendrite_size, bigger_dendrite=False, activation=None, function: int = 0,
+    def __init__(self, units, dendrite_size, activation=None, function: int = 0,
                  one_permutation: bool = False, idx=-2,
                  weight_twice=True, custom_dendrites=None, dendrite_conf='normal',
                  dendrite_shift=1,  # sequences
                  bias: bool = True, uniqueW=False, trainable=True, activity_regularizer=None,
-                 W_init=torch.glorot_normal_initializer(), B_init=torch.glorot_normal_initializer(),
-                 W_reg=None, B_reg=None,
+                 #W_init=torch.glorot_normal_initializer(), B_init=torch.glorot_normal_initializer(),
+                 #W_reg=None, B_reg=None,
                  W_constrain=minval_constraint(minval=0.00005), B_constrain=None, version=1, **kwargs):
         """
         size=number of cells/nodes
@@ -94,7 +94,6 @@ class dendriter(nn.Module):
             raise Exception("tensorflow only allows for normal mode currently")
 
         self.dendrite_size = dendrite_size
-        self.bigger_dendrite = bigger_dendrite
         self.one_perm = one_permutation
         self.idx = idx
         self.dendrite_mode = dendrite_conf
@@ -113,12 +112,10 @@ class dendriter(nn.Module):
         self.Weight_constraint = W_constrain
         self.Bias_regularizer = B_reg
         self.Bias_constraint = B_constrain
-        if isinstance(activation, str):
-            self.activation = get(activation)
-        else:
-            self.activation = activation
+
+        self.activation = activation
         self.version = version
-        self.build()
+        self.built=False
 
     def segmenter(self, ):
         """
@@ -144,27 +141,7 @@ class dendriter(nn.Module):
                     np.random.shuffle(con_pre_tup)
             connections_list.append(con_pre_tup)
             # full_conn_storage.append(copy.deepcopy(con_pre_tup))
-            """
-            Could be made to work by isolating elements with an extra index and removing/slicing them from the dendrites
-            if self.dendrite_mode==self.modes[1]:#sparse
-                if len(altered_vals)>=self.connections:
-                    altered_vals.clear()
-                popval=np.random.randint(self.connections)
-                while con_pre_tup[popval] in altered_vals:
-                    popval=np.random.randint(self.connections)
-                altered_vals.append((con_pre_tup.pop(popval),))
-            There are no known workaround for overlapping since each element can only have 1 index, so duplication would entail manual slicing and addition
-            elif self.dendrite_mode==self.modes[2]:#overlap
-                if len(altered_vals)>=self.connections:
-                    position=np.random.randint(self.connections)
-                    inval=np.random.randint(self.connections)
-                    while inval in altered_vals:#make sure you get unique value
-                        inval=np.random.randint(self.connections)
-                    while inval in con_pre_tup[position-self.dendrite_size:position+self.dendrite_size]:#ensure no proximal duplicates
-                        position=np.random.randint(self.connections)
-                    altered_vals.append(inval)
-                else:
-                    altered_vals.clear()"""
+
         del full_conn_storage
         tuples = []
         if self.dendrite_mode == self.modes[1]:  # sparse
@@ -174,32 +151,25 @@ class dendriter(nn.Module):
             connections = self.connections + self.dendrite_shift
         else:
             connections = self.connections
-        bigger = False if (connections % self.dendrite_size) == 0 else self.bigger_dendrite
+
         groups = (connections // self.dendrite_size)
-        if bigger:
-            groups -= 1
+        if not (len(connections_list[0]) == self.dendrite_size * groups):
+            raise Exception(
+                'Size of input is not equal to the number of connections, partial connections are not yet supported')
         for perm in connections_list:  # turn list to tuples
-            temp = [perm[self.dendrite_size * i:self.dendrite_size * (i + 1)] for i in range(groups)]
+            temp = [perm[self.dendrite_size * i: self.dendrite_size * (i + 1)] for i in range(groups)]
             if len(perm) > self.dendrite_size * groups:
-                temp.append(list(perm[self.dendrite_size * groups:]))
-            # print(self.dendrite_size,groups,perm)
-            # print(perm[self.dendrite_size*groups:])
-            # print(temp)
-            tuples.append(temp)
+                tlist = list(perm[self.dendrite_size * groups:])
+                # numpy does not support nan in int array
+                temp.append(tlist + [np.nan for i in range(self.dendrite_size - len(tlist))])
+
         self.seql = len(tuples[0])
         if self.version == 2:
             self.num_id = self.seql * len(tuples)
         else:
             self.num_id = self.seql
-        output = np.empty((self.units, connections,), dtype=int)
-        for iseq, sequence in enumerate(tuples):
-            for value, indexes in enumerate(sequence):
-                for index in indexes:
-                    if self.version == 2:
-                        output[iseq, index] = value + iseq * self.seql
-                    else:
-                        output[iseq, index] = value
-        return (output)
+
+        return (tuples)
 
     def build(self, input_shape):
         print("building")
@@ -263,8 +233,6 @@ class dendriter(nn.Module):
             else:
                 self.dendriticB = nn.Parameter(self.units)
         self.input_spec = torch.layers.InputSpec(min_ndim=2, max_ndim=3, axes={-1: self.connections})
-
-        super(dendriter, self).build(input_shape)
         print("supered")
         self.built = True
         print('builded')
@@ -273,22 +241,11 @@ class dendriter(nn.Module):
         "return the connections for replication"
         return (self.dendrites)
 
-    def compute_output_shape(self, input_shape):
-        input_shape = torch.TensorShape(input_shape)  # torch.shape(input_shape)#
-        input_shape = input_shape.with_rank_at_least(2)
-        if input_shape[-1].value is None:
-            raise ValueError(
-                'The innermost dimension of input_shape must be defined, but saw: %s'
-                % input_shape)
 
-        print('outputshape is {}'.format(input_shape[:-1].concatenate(self.units)))
-        return input_shape[:-1].concatenate(self.units)
 
     def forward(self, inputs):
-        try:
-            assert not (self.dendriticW.dtype is None)
-        except:
-            self.build(inputs)  # .shape)
+        if not(self.built):
+            self.build(inputs.shape)
         # inputs = torch.ops.convert_to_tensor(inputs, dtype=self.dtype)
         if not (inputs.dtype == self.dendriticW.dtype):
             print("casting")
@@ -296,7 +253,7 @@ class dendriter(nn.Module):
         print('input shape', inputs.shape)
         if self.weight_twice:
             # each dendrit COULD have unique weight for each input, meaning Wshape=[input,dendrite,units]
-            output = torch.expand(inputs, -1)
+            output = inputs.unsqueeze( 0)
             if self.uniqueW:
                 output = torch.multiply(output, self.kernel)
             else:
@@ -385,3 +342,10 @@ def _GuidedReluGrad(op, grad):
         print x.eval(), y.eval(), z.eval(), torch.gradients(z, x)[0].eval()# > [ 10.   2.] [ 10.   2.] -104.0 [ 0.  0.]
 """
 
+if __name__=='__main__':
+    size = 78
+    test_tens = np.random.rand(3, size)
+    test_data = torch.from_numpy(test_tens)
+    layt=dendriter(6,3)
+    outs=layt.forward(test_data)
+    print(outs)
