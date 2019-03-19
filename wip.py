@@ -1,7 +1,7 @@
-import numpy as np
 from torch import nn
 from torch import tensor
 import torch
+import numpy as np
 
 
 # mxnet pick :https://mxnet.incubator.apache.org/api/python/ndarray/ndarray.html#mxnet.ndarray.pick
@@ -12,7 +12,7 @@ import torch
 class minval_constraint():
     def __init__(self, minval=0.0001):
         self.minvalval = minval
-        self.minval = torch.constant(minval)
+        self.minval = minval
 
     def get_config(self):
         return ({"minimal value": self.minvalval})
@@ -38,7 +38,7 @@ class minmax_constraint():
         self.maxvalval = maxval
         self.maxval = torch.constant(maxval)
         self.minvalval = minval
-        self.minval = torch.constant(minval))
+        self.minval = torch.constant(minval)
 
     def get_config(self):
         return ({"maximal value": self.maxvalval, "minimal value": self.minvalval})
@@ -79,11 +79,6 @@ class dendriter(nn.Module):
         super(dendriter, self).__init__()
         self.units = units
         self.modes = ['normal', 'sparse', 'overlap']
-        try:
-            self.function = [torch.unsorted_segment_sum, torch.unsorted_segment_mean][function % 2]
-            # cannot import unsorted_segment_mean, with torch1.7 on my setup, but worth trying
-        except (ImportError, AttributeError):
-            self.function = torch.unsorted_segment_sum
         if isinstance(dendrite_conf, int):
             assert dendrite_conf <= 2 and dendrite_conf >= 0
             dendrite_conf = self.modes[dendrite_conf]
@@ -103,16 +98,17 @@ class dendriter(nn.Module):
         self.use_bias = bias
         self.uniqueW = uniqueW
         self.dendrites = custom_dendrites
+        '''
         self.Weight_initializer = W_init
         if B_init is None:
             self.Bias_initializer = torch.initializers.ones
         else:
             self.Bias_initializer = B_init
         self.Weight_regularizer = W_reg
-        self.Weight_constraint = W_constrain
         self.Bias_regularizer = B_reg
+        self.Weight_constraint = W_constrain
         self.Bias_constraint = B_constrain
-
+        '''
         self.activation = activation
         self.version = version
         self.built=False
@@ -162,7 +158,7 @@ class dendriter(nn.Module):
                 tlist = list(perm[self.dendrite_size * groups:])
                 # numpy does not support nan in int array
                 temp.append(tlist + [np.nan for i in range(self.dendrite_size - len(tlist))])
-
+            tuples.append(temp)
         self.seql = len(tuples[0])
         if self.version == 2:
             self.num_id = self.seql * len(tuples)
@@ -174,7 +170,7 @@ class dendriter(nn.Module):
     def build(self, input_shape):
         print("building")
 
-        self.input_shapes = input_shape.shape.as_list()
+        self.input_shapes = input_shape
         self.len_input = len(self.input_shapes)
         self.connections = self.input_shapes[-1]
         if self.dendrite_mode == self.modes[1]:  # sparse
@@ -231,8 +227,7 @@ class dendriter(nn.Module):
             if self.uniqueW:
                 self.dendriticB = nn.Parameter(torch.randn(self.seql, self.units))
             else:
-                self.dendriticB = nn.Parameter(self.units)
-        self.input_spec = torch.layers.InputSpec(min_ndim=2, max_ndim=3, axes={-1: self.connections})
+                self.dendriticB = nn.Parameter(torch.randn(self.units))
         print("supered")
         self.built = True
         print('builded')
