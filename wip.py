@@ -165,6 +165,8 @@ class dendriter(nn.Module):
         else:
             self.num_id = self.seql
         self.dendrites=torch.tensor(tuples,dtype=torch.long)
+        self.dendrites=torch.transpose(self.dendrites, 0, len(self.dendrites.shape)-1)
+
 
 
     def build(self, input_shape):
@@ -238,9 +240,11 @@ class dendriter(nn.Module):
 
 
     def dendritic_op(self,input_data):
+        if input_data.shape != self.dendrites.shape and False:
+            input_data=torch.transpose(input_data,0,len(input_data.shape)-1)
         gathered=torch.gather(input_data,1,self.dendrites)
         print(gathered.shape)
-        return(self.ope(gathered,dim=0))
+        return(self.oper(gathered,dim=0))
 
     def forward(self, inputs):
         if not(self.built):
@@ -296,19 +300,18 @@ class dendriter(nn.Module):
                 output = torch.reshape(torch.transpose(output), self.debuildshape)
                 output = torch.unsorted_segment_sum(output, torch.reshape(self.dendrites, self.deseqshape), self.num_id)
                 output = torch.reshape(output, self.rebuildshape)
-                print(torch.transpose(output).shape, self.rebuildshape)
+                #print(torch.transpose(output).shape, self.rebuildshape)
         if self.version == 1:
             output = self.dendritic_op(output, )
             # too much squashing
-            print(output.shape, 'unsorted shape')
-            output = torch.tensordot(torch.transpose(output), self.dendriticW, (-1, 0))
+            print(output.shape, 'unsorted shape',self.dendriticW.shape)
+            output = torch.tensordot(output, self.dendriticW,dims=([[-1,],[-1,]]))# dims=([[-1,],[0,]]))
         else:
             print(output.shape, self.dendriticW.shape)
-            output = torch.matmul(torch.transpose(output),
-                                 self.dendriticW)  # perfect since it's elementwise and not dot product
-        print(output.shape, '2w shape')
+            output = torch.matmul(output,self.dendriticW)  # perfect since it's elementwise and not dot product
+        print(output.shape, '2w shape',self.dendriticB.shape)
         if self.use_bias:
-            output = torch.nn.bias_add(output, self.dendriticB)
+            output += self.dendriticB
         print(output.shape, '2b shape')
         output = torch.sum(output, -2)  # sum the dendrites
         if self.activation is not None:
