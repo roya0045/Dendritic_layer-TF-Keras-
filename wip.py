@@ -184,10 +184,10 @@ class dendriter(nn.Module):
         if self.version == 4:
             self.dendrites = torch.constant(self.dendrites)
         self.pre_dendrites = self.connections * self.units  # neurons*previous_layer_neurons
-        if self.version == 1:
-            dwshape = [self.seql, self.units]
+        if self.version != 1:
+            dwshape = [self.units,self.seql ]
         else:
-            dwshape = [self.seql, self.units]
+            dwshape = [self.seql,self.units ]
             # dwshape=[self.units,self.seql,*[1 for _ in range(self.len_input-1)]]
         # self.num_dendrites=self.pre_dendrites/self.dendrite_size
         # if self.bigger_dendrite:
@@ -305,10 +305,11 @@ class dendriter(nn.Module):
             output = self.dendritic_op(output, )
             # too much squashing
             print(output.shape, 'unsorted shape',self.dendriticW.shape)
-            output = torch.tensordot(output, self.dendriticW,dims=([[-1,],[-1,]]))# dims=([[-1,],[0,]]))
+            output = torch.mul(output, self.dendriticW)#matmul
+            #output = torch.tensordot(output, self.dendriticW,)# dims=([[-1,],[0,]]))
         else:
             print(output.shape, self.dendriticW.shape)
-            output = torch.matmul(output,self.dendriticW)  # perfect since it's elementwise and not dot product
+            output = torch.mul(output,self.dendriticW)  # perfect since it's elementwise and not dot product
         print(output.shape, '2w shape',self.dendriticB.shape)
         if self.use_bias:
             output += self.dendriticB
@@ -353,6 +354,6 @@ if __name__=='__main__':
     size = 78
     test_tens = np.random.rand(3, size)
     test_data = torch.from_numpy(test_tens)
-    layt=dendriter(6,3)
+    layt=dendriter(13,3)
     outs=layt.forward(test_data)
     print(outs)
