@@ -217,6 +217,7 @@ class dendriter(nn.Module):
 
             else:
                 self.kernel = nn.Parameter(torch.randn(1, self.units).to(torch.float64))
+            super(dendriter, self).register_parameter('kernel', self.kernel)
         print('line246')
         self.dendriticW = nn.Parameter (torch.randn(dwshape).to(torch.float64))
         print("added dendw")
@@ -226,11 +227,14 @@ class dendriter(nn.Module):
                     self.bias = nn.Parameter(torch.randn(self.input_shapes[-1], self.units).to(torch.float64))
                 else:
                     self.bias = nn.Parameter(torch.randn(self.units).to(torch.float64))
+                super(dendriter, self).register_parameter('Bias',self.bias)
             if self.uniqueW:
                 self.dendriticB = nn.Parameter(torch.randn(self.seql, self.units).to(torch.float64))
             else:
                 self.dendriticB = nn.Parameter(torch.randn(self.units).to(torch.float64))
+            super(dendriter, self).register_parameter('dendritic_B',self.dendriticB)
         print("supered")
+        super(dendriter, self).register_parameter('dentritic_W', self.dendriticW)
         self.built = True
         print('builded')
 
@@ -322,33 +326,6 @@ class dendriter(nn.Module):
         return (output)
 
 
-# FORWARD
-"""
-input->Basalcomp->(soma*W_neuron_inter)->basal_inter->soma_inter
-soma-(soma_inter*W_inter_neuron) ->apical 
-(soma*W_neuron_neuron)->basal(new_neuron)"""
-# BACKWARDpg6
-"""Loss(apical)->soma(change it, lead to change in incoming weight for basal comp)
-#v2:
-soma_up + apical-soma inter->soma ->soma_up (error)?
-"""
-"""
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import gen_nn_ops
-
-def _GuidedReluGrad(op, grad):
-    return torch.select(0. < grad, gen_nn_ops._relu_grad(grad, op.outputs[0]), torch.zeros(grad.get_shape()))
-
-    with torch.Session() as sess:
-        g = torch.get_default_graph()
-        x = torch.constant([10., 2.])
-        with g.gradient_override_map({'Relu': 'GuidedRelu'}):
-            y = torch.nn.relu(x)
-            z = torch.reduce_sum(-y ** 2)
-        torch.initialize_all_variables().run()
-
-        print x.eval(), y.eval(), z.eval(), torch.gradients(z, x)[0].eval()# > [ 10.   2.] [ 10.   2.] -104.0 [ 0.  0.]
-"""
 
 if __name__=='__main__':
     size = 78
