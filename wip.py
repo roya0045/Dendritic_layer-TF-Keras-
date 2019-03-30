@@ -1,4 +1,5 @@
 from torch import nn
+from torch.nn import init as finit
 from torch import tensor
 import torch
 import numpy as np
@@ -169,7 +170,7 @@ class dendriter(nn.Module):
 
 
 
-    def build(self, input_shape):
+    def build(self, input_shape,dtype=torch.float64):
         print("building")
 
         self.input_shapes = input_shape
@@ -213,25 +214,33 @@ class dendriter(nn.Module):
                                     constraint=self.Weight_constraint,dtype=self.dtype,
                                     trainable=True)"""
             if self.uniqueW:
-                self.kernel = nn.Parameter(torch.randn(*[1 for _ in range(self.len_input - 1)], self.input_shapes[-1],self.units).to(torch.float64))
+                kernel = torch.empty(*[1 for _ in range(self.len_input - 1)], self.input_shapes[-1],self.units)
 
             else:
-                self.kernel = nn.Parameter(torch.randn(1, self.units).to(torch.float64))
+                kernel = torch.empty(1, self.units)
+            finit.kaiming_normal(kernel)
+            self.kernel = torch.Parameter( kernel, dtype=dtype)
             super(dendriter, self).register_parameter('kernel', self.kernel)
         print('line246')
-        self.dendriticW = nn.Parameter (torch.randn(dwshape).to(torch.float64))
+        dw = torch.empty(*dwshape)
+        finit.kaiming_normal(dw)
+        self.dendriticW = nn.Parameter (dw,dtype=dtype)
         print("added dendw")
         if self.use_bias:
             if self.weight_twice:
                 if self.uniqueW:
-                    self.bias = nn.Parameter(torch.randn(self.input_shapes[-1], self.units).to(torch.float64))
+                    b = torch.empty(self.input_shapes[-1], self.units)
                 else:
-                    self.bias = nn.Parameter(torch.randn(self.units).to(torch.float64))
+                    b =torch.empty(self.units)
+                finit.kaiming_normal(b)
+                self.bias = nn.Parameter(b,dtype=dtype)
                 super(dendriter, self).register_parameter('Bias',self.bias)
             if self.uniqueW:
-                self.dendriticB = nn.Parameter(torch.randn(self.seql, self.units).to(torch.float64))
+                db = torch.empty(self.seql, self.units)
             else:
-                self.dendriticB = nn.Parameter(torch.randn(self.units).to(torch.float64))
+                db = torch.empty(self.units)
+            finit.kaiming_normal(db)
+            self.dendriticB = nn.Parameter(db, dtype=dtype)
             super(dendriter, self).register_parameter('dendritic_B',self.dendriticB)
         print("supered")
         super(dendriter, self).register_parameter('dentritic_W', self.dendriticW)
