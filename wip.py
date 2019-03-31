@@ -343,3 +343,24 @@ if __name__=='__main__':
     layt=dendriter(13,3)
     outs=layt.forward(test_data)
     print(outs)
+    module=dendriter(8,4)
+    net=module.to('cpu')
+    loss=nn.SmoothL1Loss()
+    optim=optim.Adam(net.parameters(), lr=0.2, betas=(0.5, 0.999))
+    corrections=torch.ones(..)
+    OGW=list()
+    for param in net.parameters():
+        OGW.append(param)
+   output=net(test_data)
+   net.zero_grad()
+   outloss=loss(output, corrections)
+   outloss.backward()
+   optim.step()
+   OPW=list()
+   for param in net.parameters():
+        OPW.append(param)
+  diff=list()
+  for i,v in enumerate(OPW):
+      diff.append(v-OGW[i])
+  print(diff)
+   
