@@ -1,6 +1,7 @@
 from torch import nn
 from torch.nn import init as finit
 from torch import tensor
+from torch.optim import Adam
 import torch
 import numpy as np
 
@@ -49,13 +50,13 @@ class minmax_constraint():
 
 
 class dendriter(nn.Module):
-    def __init__(self, units, dendrite_size, activation=None, function: int = 0,
-                 one_permutation: bool = False, idx=-2,oper=torch.cumsum,
+    def __init__(self, units, dendrite_size,inputshape, activation=None, function: int = 0,
+                 one_permutation: bool = False, idx=-2, oper=torch.cumsum,
                  weight_twice=True, custom_dendrites=None, dendrite_conf='normal',
                  dendrite_shift=1,  # sequences
                  bias: bool = True, uniqueW=False, trainable=True, activity_regularizer=None,
-                 #W_init=torch.glorot_normal_initializer(), B_init=torch.glorot_normal_initializer(),
-                 #W_reg=None, B_reg=None,
+                 # W_init=torch.glorot_normal_initializer(), B_init=torch.glorot_normal_initializer(),
+                 # W_reg=None, B_reg=None,
                  W_constrain=minval_constraint(minval=0.00005), B_constrain=None, version=1, **kwargs):
         """
         size=number of cells/nodes
@@ -88,7 +89,7 @@ class dendriter(nn.Module):
             assert dendrite_conf in self.modes
         if dendrite_conf == self.modes[1] or dendrite_conf == self.modes[2]:
             raise Exception("tensorflow only allows for normal mode currently")
-        self.oper=oper
+        self.oper = oper
         self.dendrite_size = dendrite_size
         self.one_perm = one_permutation
         self.idx = idx
@@ -99,6 +100,7 @@ class dendriter(nn.Module):
         self.use_bias = bias
         self.uniqueW = uniqueW
         self.dendrites = custom_dendrites
+        self.kernel,self.bias,self.dendriticW,self.dendriticB=None,None,None,None
         '''
         self.Weight_initializer = W_init
         if B_init is None:
@@ -112,7 +114,9 @@ class dendriter(nn.Module):
         '''
         self.activation = activation
         self.version = version
-        self.built=False
+        self.params = list()
+        self.build(inputshape)
+
 
     def segmenter(self, ):
         """
@@ -165,12 +169,10 @@ class dendriter(nn.Module):
             self.num_id = self.seql * len(tuples)
         else:
             self.num_id = self.seql
-        self.dendrites=torch.tensor(tuples,dtype=torch.long)
-        self.dendrites=torch.transpose(self.dendrites, 0, len(self.dendrites.shape)-1)
+        self.dendrites = torch.tensor(tuples, dtype=torch.long)
+        self.dendrites = torch.transpose(self.dendrites, 0, len(self.dendrites.shape) - 1)
 
-
-
-    def build(self, input_shape,dtype=torch.float64):
+    def build(self, input_shape, dtype=torch.float64):
         print("building")
 
         self.input_shapes = input_shape
@@ -186,10 +188,10 @@ class dendriter(nn.Module):
             self.dendrites = torch.constant(self.dendrites)
         self.pre_dendrites = self.connections * self.units  # neurons*previous_layer_neurons
         if self.version != 1:
-            dwshape = [self.units,self.seql ]
+            dwshape = [self.units, self.seql]
         else:
-            dwshape = [self.seql,self.units ]
-            # dwshape=[self.units,self.seql,*[1 for _ in range(self.len_input-1)]]
+            dwshape = [self.seql, self.units]
+        # dwshape=[self.units,self.seql,*[1 for _ in range(self.len_input-1)]]
         # self.num_dendrites=self.pre_dendrites/self.dendrite_size
         # if self.bigger_dendrite:
         #    self.num_dendrites=math.floor(self.num_dendrites)
@@ -214,36 +216,44 @@ class dendriter(nn.Module):
                                     constraint=self.Weight_constraint,dtype=self.dtype,
                                     trainable=True)"""
             if self.uniqueW:
-                kernel = torch.empty(*[1 for _ in range(self.len_input - 1)], self.input_shapes[-1],self.units)
+                kernel = torch.empty(*[1 for _ in range(self.len_input - 1)], self.input_shapes[-1], self.units, dtype=dtype)
 
             else:
-                kernel = torch.empty(1, self.units)
+                kernel = torch.empty(1, self.units, dtype=dtype)
             finit.kaiming_normal(kernel)
-            self.kernel = torch.Parameter( kernel, dtype=dtype)
-            super(dendriter, self).register_parameter('kernel', self.kernel)
+            self.kernel = nn.Parameter(kernel)
+            self.register_parameter('kernel', self.kernel)
+            self.params.append(self.kernel)
         print('line246')
-        dw = torch.empty(*dwshape)
+        dw = torch.empty(*dwshape,dtype=dtype)
         finit.kaiming_normal(dw)
-        self.dendriticW = nn.Parameter (dw,dtype=dtype)
+        self.dendriticW = nn.Parameter(dw)
+        self.params.append(self.dendriticW)
+        print(self.dendriticW)
         print("added dendw")
         if self.use_bias:
             if self.weight_twice:
                 if self.uniqueW:
-                    b = torch.empty(self.input_shapes[-1], self.units)
+                    b = torch.empty(self.input_shapes[-1], self.units, dtype=dtype)
                 else:
-                    b =torch.empty(self.units)
-                finit.kaiming_normal(b)
-                self.bias = nn.Parameter(b,dtype=dtype)
-                super(dendriter, self).register_parameter('Bias',self.bias)
+                    b = torch.empty(1,self.units, dtype=dtype)
+                try:
+                    finit.kaiming_normal_(b)
+                except:
+                    finit.xavier_normal_(b)
+                self.bias = nn.Parameter(b)
+                self.register_parameter('Bias', self.bias)
+                self.params.append(self.bias)
             if self.uniqueW:
-                db = torch.empty(self.seql, self.units)
+                db = torch.empty(self.seql, self.units, dtype=dtype)
             else:
-                db = torch.empty(self.units)
-            finit.kaiming_normal(db)
-            self.dendriticB = nn.Parameter(db, dtype=dtype)
-            super(dendriter, self).register_parameter('dendritic_B',self.dendriticB)
+                db = torch.empty(1,self.units, dtype=dtype)
+            finit.kaiming_normal_(db)
+            self.dendriticB = nn.Parameter(db)
+            self.params.append(self.dendriticB)
+            self.register_parameter('dendritic_B', self.dendriticB)
         print("supered")
-        super(dendriter, self).register_parameter('dentritic_W', self.dendriticW)
+        #self.register_parameter('dentritic_W', self.dendriticW)
         self.built = True
         print('builded')
 
@@ -251,37 +261,36 @@ class dendriter(nn.Module):
         "return the connections for replication"
         return (self.dendrites)
 
-
-    def dendritic_op(self,input_data):
+    def dendritic_op(self, input_data):
         if input_data.shape != self.dendrites.shape and False:
-            input_data=torch.transpose(input_data,0,len(input_data.shape)-1)
-        gathered=torch.gather(input_data,1,self.dendrites)
+            input_data = torch.transpose(input_data, 0, len(input_data.shape) - 1)
+        gathered = torch.gather(input_data, 1, self.dendrites)
         print(gathered.shape)
-        return(self.oper(gathered,dim=0))
+        return (self.oper(gathered, dim=0))
 
     def forward(self, inputs):
-        if not(self.built):
-            self.build(inputs.shape)
+        #if not (self.built):
+        #   self.build(inputs.shape)
         # inputs = torch.ops.convert_to_tensor(inputs, dtype=self.dtype)
-        print(inputs.dtype,self.kernel.dtype,self.dendriticW.dtype)
-        #if not (inputs.dtype == self.dendriticW.dtype):
+        print(inputs.dtype, self.kernel.dtype, self.dendriticW.dtype)
+        # if not (inputs.dtype == self.dendriticW.dtype):
         #    print("casting")
         #    inputs = torch.cast(inputs, dtype=self.dendriticW.dtype)
         print('input shape', inputs.shape)
 
         if self.weight_twice:
             # each dendrit COULD have unique weight for each input, meaning Wshape=[input,dendrite,units]
-            output = inputs.unsqueeze( -1)
+            output = inputs.unsqueeze(-1)
             print(output.dtype)
-            print(output.shape,self.kernel.shape)
+            print(output.shape, self.kernel.shape)
             if self.uniqueW:
                 output = torch.multiply(output, self.kernel)
             else:
-                output = torch.tensordot(output, self.kernel, dims=([-1,], [0,]))
+                output = torch.tensordot(output, self.kernel, dims=([-1, ], [0, ]))
             print(output.shape, 'first weighting')
             print(self.bias.shape)
             if self.use_bias:
-                output +=self.bias# torch.transpose(output + self.bias)
+                output += self.bias  # torch.transpose(output + self.bias)
             print(output.shape, 'bias1')
 
         else:
@@ -309,21 +318,21 @@ class dendriter(nn.Module):
             else:
                 print(self.debuildshape)
                 output = torch.matmul(torch.expand_dims(output, 0),
-                                     torch.ones((self.units, *[1 for _ in range(self.len_input)]), dtype=output.dtype))
+                                      torch.ones((self.units, *[1 for _ in range(self.len_input)]), dtype=output.dtype))
                 output = torch.reshape(torch.transpose(output), self.debuildshape)
                 output = torch.unsorted_segment_sum(output, torch.reshape(self.dendrites, self.deseqshape), self.num_id)
                 output = torch.reshape(output, self.rebuildshape)
-                #print(torch.transpose(output).shape, self.rebuildshape)
+                # print(torch.transpose(output).shape, self.rebuildshape)
         if self.version == 1:
             output = self.dendritic_op(output, )
             # too much squashing
-            print(output.shape, 'unsorted shape',self.dendriticW.shape)
-            output = torch.mul(output, self.dendriticW)#matmul
-            #output = torch.tensordot(output, self.dendriticW,)# dims=([[-1,],[0,]]))
+            print(output.shape, 'unsorted shape', self.dendriticW.shape,output.dtype,self.dendriticW.dtype)
+            output = torch.mul(output, self.dendriticW)  # matmul
+            # output = torch.tensordot(output, self.dendriticW,)# dims=([[-1,],[0,]]))
         else:
             print(output.shape, self.dendriticW.shape)
-            output = torch.mul(output,self.dendriticW)  # perfect since it's elementwise and not dot product
-        print(output.shape, '2w shape',self.dendriticB.shape)
+            output = torch.mul(output, self.dendriticW)  # perfect since it's elementwise and not dot product
+        print(output.shape, '2w shape', self.dendriticB.shape)
         if self.use_bias:
             output += self.dendriticB
         print(output.shape, '2b shape')
@@ -335,32 +344,35 @@ class dendriter(nn.Module):
         return (output)
 
 
-
-if __name__=='__main__':
+if __name__ == '__main__':
     size = 78
     test_tens = np.random.rand(3, size)
     test_data = torch.from_numpy(test_tens)
-    layt=dendriter(13,3)
-    outs=layt.forward(test_data)
+    layt = dendriter(13, 3,test_data.shape)
+    outs = layt.forward(test_data)
     print(outs)
-    module=dendriter(8,4)
-    net=module.to('cpu')
-    loss=nn.SmoothL1Loss()
-    optim=optim.Adam(net.parameters(), lr=0.2, betas=(0.5, 0.999))
-    corrections=torch.ones(..)
-    OGW=list()
+    print([f for f in layt.parameters(recurse=False)])
+    module = dendriter(8, 4,test_data.shape)
+    net = module.to('cpu')
+    loss = nn.SmoothL1Loss()
+    print(len([f for f in net.parameters()]),'params')
+    print(dir(module))
+    print(dir(net))
+    print(net.params,module.params)
+    optim = Adam(net.parameters(), lr=0.2, betas=(0.5, 0.999))
+    corrections = torch.ones(3,13)
+    OGW = list()
     for param in net.parameters():
         OGW.append(param)
-   output=net(test_data)
-   net.zero_grad()
-   outloss=loss(output, corrections)
-   outloss.backward()
-   optim.step()
-   OPW=list()
-   for param in net.parameters():
+    output = net(test_data)
+    net.zero_grad()
+    outloss = loss(output, corrections)
+    outloss.backward()
+    optim.step()
+    OPW = list()
+    for param in net.parameters():
         OPW.append(param)
-  diff=list()
-  for i,v in enumerate(OPW):
-      diff.append(v-OGW[i])
-  print(diff)
-   
+    diff = list()
+    for i, v in enumerate(OPW):
+        diff.append(v - OGW[i])
+    print(diff)
